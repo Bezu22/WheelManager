@@ -24,23 +24,12 @@
             "opis": "125x10x32",
             "ziarno": "B107",
             "producent": "Tyrolit",
-            "status": "magazyn"
-        },
-        {
-            "id": 2,
-            "typ": "1A1",
-            "opis": "",
-            "ziarno": "D67",
-            "producent": "Toolgal",
-            "status": "W uzyciu"
-        },
-        {
-            "id": 3,
-            "typ": "1V1",
-            "opis": "",
-            "ziarno": "D78",
-            "producent": "Toolgal",
-            "status": "W uzyciu"
+            "ilosc": {
+                "magazyn": 3,
+                "W uzyciu": 1,
+                "zamowiona": 2,
+                "zlom": 0
+            }
         }
     ]
 }
