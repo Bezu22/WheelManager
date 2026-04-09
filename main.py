@@ -1,6 +1,6 @@
 from pathlib import Path
 from database import InventoryDB
-from gui import MagazynGUI
+from gui_main import MagazynGUI
 
 def main():
     # Definicja ścieżki sieciowej do folderu
