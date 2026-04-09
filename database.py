@@ -22,7 +22,7 @@ class InventoryDB:
             with open(self.filename, "w", encoding="utf-8") as f:
                 json.dump(self.dane, f, indent=4)
 
-    def dodaj_sciernice(self, typ, opis, ziarno, producent, ilosc_magazyn):
+    def dodaj_sciernice(self, typ, kat, opis, ziarno, producent, ilosc_magazyn):
         statusy_startowe = {s: 0 for s in self.dane["konfiguracja"]["statusy"]}
         try:
             statusy_startowe["magazyn"] = int(ilosc_magazyn)
@@ -32,6 +32,7 @@ class InventoryDB:
         nowa = {
             "id": len(self.dane["sciernice"]) + 1,
             "typ": typ,
+            "kat": kat,  # Nowe pole
             "opis": opis,
             "ziarno": ziarno,
             "producent": producent,
