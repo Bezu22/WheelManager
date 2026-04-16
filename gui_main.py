@@ -10,17 +10,53 @@ class MagazynGUI(ctk.CTk):
         super().__init__()
         self.db = db
         self.selected_id = None
-        self.color_map = {"W uzyciu": "#90EE90", "magazyn": "#FFFFFF", "zamowiona": "#3498db", "zlom": "#e74c3c"}
+
+        # --- 1. USTAWIENIA GEOMETRII (Środek-Góra) ---
+        self.window_width = 1450
+        self.window_height = 900
         
+        # Pobieramy szerokość ekranu użytkownika
+        screen_width = self.winfo_screenwidth()
+        
+        # Obliczamy X, aby okno było na środku, Y ustawiamy na 0 (góra)
+        pos_x = int((screen_width - self.window_width) / 2)
+        pos_y = 0
+        
+        self.geometry(f"{self.window_width}x{self.window_height}+{pos_x}+{pos_y}")
+
+        # --- 2. KONFIGURACJA WYGLĄDU ---
+        self.title("System Magazynowy Ściernic v3.0")
+        
+        # Mapa kolorów dla statusów w tabeli
+        self.color_map = {
+            "W uzyciu": "#90EE90",  # Jasny zielony
+            "magazyn": "#FFFFFF",   # Biały
+            "zamowiona": "#3498db", # Niebieski
+            "zlom": "#e74c3c"       # Czerwony
+        }
+        
+        # Definicja czcionek
         self.font_header = ("Arial", 13, "bold")
         self.font_row = ("Arial", 13)
-        
-        self.title("System Magazynowy Ściernic v3.0")
-        self.geometry("1450x900")
-        self.col_widths = {"typ": 100, "kat": 80, "opis": 280, "ziarno": 100, "producent": 170, "statusy": 500}
+        self.font_ui = ("Arial", 14)
 
+        # Szerokości kolumn
+        self.col_widths = {
+            "typ": 100, 
+            "kat": 80, 
+            "opis": 280, 
+            "ziarno": 100, 
+            "producent": 170, 
+            "statusy": 500
+        }
+
+        # --- 3. BUDOWA KONTENERA GŁÓWNEGO ---
+        # Kontener pozwala na łatwe czyszczenie okna (np. przy błędzie bazy)
         self.container = ctk.CTkFrame(self, fg_color="transparent")
         self.container.pack(fill="both", expand=True)
+
+        # --- 4. START PROGRAMU ---
+        # Sprawdzamy połączenie z plikiem JSON na dysku sieciowym
         self.sprawdz_polaczenie()
 
     def sprawdz_polaczenie(self):

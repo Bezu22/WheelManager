@@ -5,7 +5,12 @@ class EditWindow(ctk.CTkToplevel):
     def __init__(self, parent, db, item_data, callback):
         super().__init__(parent)
         self.title(f"Edycja ID: {item_data['id']}")
-        self.geometry("500x750")
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        x = int((screen_w + 200) / 2)
+        y = int((screen_h - 750) / 2)
+        self.geometry(f"500x750^{x}+{y}")
+
         self.db = db
         self.item = item_data
         self.callback = callback
