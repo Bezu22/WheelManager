@@ -1,49 +1,112 @@
-import json
+import sqlite3
 import os
 
 class InventoryDB:
-    def __init__(self, filename="magazyn.json"):
-        self.filename = filename
-        self.dane = None
+    def __init__(self, db_path):
+        self.db_path = db_path
+        # Przykładowa konfiguracja (można ją przenieść do osobnego JSONa później)
+        self.dane = {
+            "konfiguracja": {
+                "typy": ["1A1", "1V1", "11V9", "1S1"],
+                "producenci": ["Tyrolit", "Toolgal", "DrMuller"],
+                "statusy": ["magazyn", "W uzyciu", "zamowiona", "zlom"]
+            }
+        }
+        self.setup_db()
 
     def polacz(self):
-        """Sprawdza czy plik istnieje i go wczytuje. Nie tworzy pliku automatycznie."""
-        if not os.path.exists(self.filename):
-            return False
+        """Sprawdza czy można nawiązać połączenie z bazą na dysku."""
         try:
-            with open(self.filename, "r", encoding="utf-8") as f:
-                self.dane = json.load(f)
+            conn = sqlite3.connect(self.db_path)
+            conn.close()
             return True
-        except (json.JSONDecodeError, Exception):
+        except Exception:
             return False
 
-    def zapisz(self):
-        if self.dane:
-            with open(self.filename, "w", encoding="utf-8") as f:
-                json.dump(self.dane, f, indent=4)
+    def setup_db(self):
+        """Inicjalizuje tabelę jeśli nie istnieje."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sciernice (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                typ TEXT,
+                kat TEXT,
+                opis TEXT,
+                ziarno TEXT,
+                producent TEXT,
+                magazyn INTEGER DEFAULT 0,
+                uzycie INTEGER DEFAULT 0,
+                zamowiona INTEGER DEFAULT 0,
+                zlom INTEGER DEFAULT 0
+            )
+        """)
+        conn.commit()
+        conn.close()
 
-    def dodaj_sciernice(self, typ, kat, opis, ziarno, producent, ilosc_magazyn):
-        statusy_startowe = {s: 0 for s in self.dane["konfiguracja"]["statusy"]}
-        try:
-            statusy_startowe["magazyn"] = int(ilosc_magazyn)
-        except (ValueError, TypeError):
-            statusy_startowe["magazyn"] = 0
+    def pobierz_dane(self, filtr=""):
+        """Pobiera dane z filtrowaniem pod Searchbar."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        query = "SELECT * FROM sciernice WHERE typ LIKE ? OR opis LIKE ? OR producent LIKE ?"
+        f = f"%{filtr}%"
+        cur.execute(query, (f, f, f))
+        
+        rows = cur.fetchall()
+        wynik = []
+        for r in rows:
+            wynik.append({
+                "id": r["id"],
+                "typ": r["typ"],
+                "kat": r["kat"],
+                "opis": r["opis"],
+                "ziarno": r["ziarno"],
+                "producent": r["producent"],
+                "ilosc": {
+                    "magazyn": r["magazyn"],
+                    "W uzyciu": r["uzycie"],
+                    "zamowiona": r["zamowiona"],
+                    "zlom": r["zlom"]
+                }
+            })
+        conn.close()
+        return wynik
 
-        nowa = {
-            "id": len(self.dane["sciernice"]) + 1,
-            "typ": typ,
-            "kat": kat,  # Nowe pole
-            "opis": opis,
-            "ziarno": ziarno,
-            "producent": producent,
-            "ilosc": statusy_startowe
-        }
-        self.dane["sciernice"].append(nowa)
-        self.zapisz()
+    def dodaj_sciernice(self, typ, kat, opis, ziarno, producent, ilosc_start):
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO sciernice (typ, kat, opis, ziarno, producent, magazyn)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (typ, kat, opis, ziarno, producent, ilosc_start))
+        conn.commit()
+        conn.close()
 
     def aktualizuj_pozycje(self, id_pozycji, nowe_dane):
-        for i, s in enumerate(self.dane["sciernice"]):
-            if s["id"] == id_pozycji:
-                self.dane["sciernice"][i].update(nowe_dane)
-                break
-        self.zapisz()
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        # Mapowanie kluczy z GUI na kolumny SQL
+        cur.execute("""
+            UPDATE sciernice 
+            SET opis=?, kat=?, magazyn=?, uzycie=?, zamowiona=?, zlom=?
+            WHERE id=?
+        """, (
+            nowe_dane["opis"], 
+            nowe_dane["kat"], 
+            nowe_dane["ilosc"].get("magazyn", 0),
+            nowe_dane["ilosc"].get("W uzyciu", 0),
+            nowe_dane["ilosc"].get("zamowiona", 0),
+            nowe_dane["ilosc"].get("zlom", 0),
+            id_pozycji
+        ))
+        conn.commit()
+        conn.close()
+
+    def usun_pozycje(self, id_pozycji):
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM sciernice WHERE id=?", (id_pozycji,))
+        conn.commit()
+        conn.close()

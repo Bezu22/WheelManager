@@ -1,9 +1,11 @@
 import customtkinter as ctk
+from tkinter import messagebox
 from gui_components import EditWindow
 
-ctk.set_appearance_mode("System")
+# Konfiguracja wyglądu
+ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
-ctk.set_widget_scaling(1.15)
+ctk.set_widget_scaling(1.1)
 
 class MagazynGUI(ctk.CTk):
     def __init__(self, db):
@@ -11,55 +13,45 @@ class MagazynGUI(ctk.CTk):
         self.db = db
         self.selected_id = None
 
-        # --- 1. USTAWIENIA GEOMETRII (Środek-Góra) ---
+        # --- 1. USTAWIENIA OKNA ---
         self.window_width = 1450
-        self.window_height = 900
-        
-        # Pobieramy szerokość ekranu użytkownika
+        self.window_height = 850
         screen_width = self.winfo_screenwidth()
-        
-        # Obliczamy X, aby okno było na środku, Y ustawiamy na 0 (góra)
         pos_x = int((screen_width - self.window_width) / 2)
-        pos_y = 0
-        
-        self.geometry(f"{self.window_width}x{self.window_height}+{pos_x}+{pos_y}")
+        self.geometry(f"{self.window_width}x{self.window_height}+{pos_x}+50")
+        self.title("System Zarządzania Ściernicami v4.0 (SQL + Search)")
 
-        # --- 2. KONFIGURACJA WYGLĄDU ---
-        self.title("System Magazynowy Ściernic v3.0")
-        
-        # Mapa kolorów dla statusów w tabeli
+        # --- 2. KONFIGURACJA WIZUALNA ---
         self.color_map = {
-            "W uzyciu": "#90EE90",  # Jasny zielony
+            "W uzyciu": "#90EE90",  # Zielony
             "magazyn": "#FFFFFF",   # Biały
             "zamowiona": "#3498db", # Niebieski
             "zlom": "#e74c3c"       # Czerwony
         }
         
-        # Definicja czcionek
         self.font_header = ("Arial", 13, "bold")
         self.font_row = ("Arial", 13)
         self.font_ui = ("Arial", 14)
 
-        # Szerokości kolumn
+        # Szerokości kolumn (zoptymalizowane pod nowy parametr)
         self.col_widths = {
             "typ": 100, 
-            "kat": 80, 
-            "opis": 280, 
+            "kat": 120,    # Nazwa klucza 'kat' zostaje, ale nagłówek to 'PARAMETR'
+            "opis": 300, 
             "ziarno": 100, 
             "producent": 170, 
             "statusy": 500
         }
 
-        # --- 3. BUDOWA KONTENERA GŁÓWNEGO ---
-        # Kontener pozwala na łatwe czyszczenie okna (np. przy błędzie bazy)
+        # Kontener główny
         self.container = ctk.CTkFrame(self, fg_color="transparent")
         self.container.pack(fill="both", expand=True)
 
-        # --- 4. START PROGRAMU ---
-        # Sprawdzamy połączenie z plikiem JSON na dysku sieciowym
+        # --- 3. INICJALIZACJA ---
         self.sprawdz_polaczenie()
 
     def sprawdz_polaczenie(self):
+        """Weryfikuje czy baza danych na dysku sieciowym jest dostępna."""
         for w in self.container.winfo_children(): w.destroy()
         if self.db.polacz():
             self.setup_ui_pelny()
@@ -67,95 +59,224 @@ class MagazynGUI(ctk.CTk):
             self.setup_ui_error()
 
     def setup_ui_error(self):
+        """Ekran błędu w przypadku braku dostępu do dysku/bazy."""
         f = ctk.CTkFrame(self.container)
         f.place(relx=0.5, rely=0.5, anchor="center")
         ctk.CTkLabel(f, text="⚠️", font=("Arial", 70)).pack(pady=10)
-        ctk.CTkLabel(f, text="BRAK POŁĄCZENIA", font=("Arial", 22, "bold"), text_color="#e74c3c").pack(pady=10, padx=60)
-        ctk.CTkButton(f, text="PONÓW", height=45, command=self.sprawdz_polaczenie).pack(pady=25)
+        ctk.CTkLabel(f, text="BRAK POŁĄCZENIA Z BAZĄ DANYCH", font=("Arial", 20, "bold"), text_color="#e74c3c").pack(pady=10, padx=50)
+        ctk.CTkLabel(f, text=f"Lokalizacja: {self.db.db_path}", font=("Arial", 12)).pack(pady=5)
+        ctk.CTkButton(f, text="SPRÓBUJ PONOWNIE", height=45, command=self.sprawdz_polaczenie).pack(pady=25)
 
     def setup_ui_pelny(self):
-        self.container.grid_rowconfigure(0, weight=1)
+        """Buduje główny interfejs użytkownika."""
+        self.container.grid_rowconfigure(1, weight=1)  # Tabela zajmuje resztę miejsca
         self.container.grid_columnconfigure(0, weight=1)
 
-        # Tabela
-        self.frame_tabela = ctk.CTkFrame(self.container)
-        self.frame_tabela.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="nsew")
+        # --- PANEL GÓRNY: WYSZUKIWARKA ---
+        self.frame_top = ctk.CTkFrame(self.container, fg_color="transparent")
+        self.frame_top.grid(row=0, column=0, padx=20, pady=(15, 5), sticky="ew")
+
+        self.search_var = ctk.StringVar()
+        self.search_var.trace_add("write", lambda *args: self.odswiez_tabele())
         
+        self.e_search = ctk.CTkEntry(
+            self.frame_top, 
+            placeholder_text="🔍 Wyszukaj ściernicę (typ, opis lub producent)...",
+            textvariable=self.search_var,
+            width=500,
+            height=40,
+            font=self.font_ui
+        )
+        self.e_search.pack(side="left")
+
+        # --- PANEL ŚRODKOWY: TABELA ---
+        self.frame_tabela = ctk.CTkFrame(self.container)
+        self.frame_tabela.grid(row=1, column=0, padx=20, pady=5, sticky="nsew")
+        
+        # Nagłówki
         self.h_frame = ctk.CTkFrame(self.frame_tabela, fg_color="transparent")
         self.h_frame.pack(fill="x", padx=10, pady=10)
-        for h in ["typ", "kat", "opis", "ziarno", "producent", "statusy"]:
-            ctk.CTkLabel(self.h_frame, text=h.upper(), width=self.col_widths[h], anchor="w", font=self.font_header).pack(side="left", padx=5)
+        
+        headers = [
+            ("typ", "TYP"), 
+            ("kat", "PARAMETR"), 
+            ("opis", "OPIS (WYMIARY)"), 
+            ("ziarno", "ZIARNO"), 
+            ("producent", "PRODUCENT"), 
+            ("statusy", "STATUSY / STANY")
+        ]
 
+        for key, text in headers:
+            ctk.CTkLabel(self.h_frame, text=text, width=self.col_widths[key], anchor="w", font=self.font_header).pack(side="left", padx=5)
+
+        # Obszar przewijany danych
         self.scroll = ctk.CTkScrollableFrame(self.frame_tabela, fg_color="#1a1a1a")
-        self.scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        self.scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        # Formularz
+        # --- PANEL DOLNY: FORMULARZ DODAWANIA ---
         self.p_form = ctk.CTkFrame(self.container)
-        self.p_form.grid(row=1, column=0, padx=20, pady=20, sticky="ew")
+        self.p_form.grid(row=2, column=0, padx=20, pady=20, sticky="ew")
         
         conf = self.db.dane["konfiguracja"]
-        katy_ikona = [f"{k}°" if k != "N/A" else k for k in conf["katy"]]
 
         self.c_typ = ctk.CTkComboBox(self.p_form, values=conf["typy"], width=100, height=40)
         self.c_typ.pack(side="left", padx=3)
-        self.c_kat = ctk.CTkComboBox(self.p_form, values=katy_ikona, width=80, height=40)
-        self.c_kat.pack(side="left", padx=3)
-        self.e_opis = ctk.CTkEntry(self.p_form, placeholder_text="Opis", width=280, height=40)
+        
+        self.e_param = ctk.CTkEntry(self.p_form, placeholder_text="Parametr", width=100, height=40)
+        self.e_param.pack(side="left", padx=3)
+        
+        self.e_opis = ctk.CTkEntry(self.p_form, placeholder_text="Opis wymiarowy", width=280, height=40)
         self.e_opis.pack(side="left", padx=3)
+        
         self.e_ziarno = ctk.CTkEntry(self.p_form, placeholder_text="Ziarno", width=100, height=40)
         self.e_ziarno.pack(side="left", padx=3)
+        
         self.c_prod = ctk.CTkComboBox(self.p_form, values=conf["producenci"], width=170, height=40)
         self.c_prod.pack(side="left", padx=3)
+        
         self.e_il = ctk.CTkEntry(self.p_form, placeholder_text="Szt.", width=70, height=40)
         self.e_il.pack(side="left", padx=3)
 
-        ctk.CTkButton(self.p_form, text="DODAJ", fg_color="#2ecc71", width=120, height=40, font=self.font_header, command=self.handle_add).pack(side="left", padx=15)
-        self.btn_ed = ctk.CTkButton(self.p_form, text="EDYTUJ WYBRANĄ", fg_color="#3498db", state="disabled", width=200, height=40, font=self.font_header, command=self.open_edit)
-        self.btn_ed.pack(side="right", padx=10)
+        self.btn_add = ctk.CTkButton(
+            self.p_form, 
+            text="DODAJ DO BAZY", 
+            fg_color="#2ecc71", 
+            hover_color="#27ae60",
+            width=140, 
+            height=40, 
+            font=self.font_header, 
+            command=self.handle_add
+        )
+        self.btn_add.pack(side="left", padx=15)
+        
+        # Przycisk USUŃ (Dodany po prawej jako pierwszy od krawędzi)
+        self.btn_del = ctk.CTkButton(
+            self.p_form, 
+            text="USUŃ", 
+            state="disabled", 
+            fg_color="#c0392b", 
+            hover_color="#e74c3c",
+            width=100, 
+            height=40,           # Dodano wysokość dla spójności
+            font=self.font_header, # Dodano czcionkę
+            command=self.confirm_delete_main
+        )
+        self.btn_del.pack(side="right", padx=5)
 
+        # Przycisk EDYTUJ (Dodany po prawej jako drugi od krawędzi)
+        self.btn_ed = ctk.CTkButton(
+            self.p_form, 
+            text="EDYTUJ WYBRANĄ", 
+            fg_color="#3498db", 
+            state="disabled", 
+            width=150, 
+            height=40,           # Dodano wysokość dla spójności
+            font=self.font_header, 
+            command=self.open_edit
+        )
+        self.btn_ed.pack(side="right", padx=5)
+
+        # Inicjalizacja tabeli
         self.odswiez_tabele()
 
     def odswiez_tabele(self):
+        """Pobiera przefiltrowane dane z bazy SQL i rysuje wiersze."""
         for w in self.scroll.winfo_children(): w.destroy()
-        for s in self.db.dane["sciernice"]:
+        
+        fraza = self.search_var.get()
+        dane = self.db.pobierz_dane(fraza)
+        
+        for s in dane:
             is_selected = (self.selected_id == s["id"])
             bg = "#1f538d" if is_selected else "#2b2b2b"
-            f = ctk.CTkFrame(self.scroll, fg_color=bg, corner_radius=0)
-            f.pack(fill="x", pady=2)
+            
+            f = ctk.CTkFrame(self.scroll, fg_color=bg, corner_radius=4)
+            f.pack(fill="x", pady=2, padx=2)
+            
+            # Reakcja na kliknięcie wiersza
             f.bind("<Button-1>", lambda e, cid=s["id"]: self.select_item(cid))
             
-            kat_val = str(s.get("kat", "N/A"))
-            if kat_val != "N/A" and "°" not in kat_val: kat_val += "°"
-
-            pola = [("typ", s["typ"]), ("kat", kat_val), ("opis", s["opis"]), ("ziarno", s["ziarno"]), ("producent", s["producent"])]
+            # Pola tekstowe w wierszu
+            pola = [
+                ("typ", s["typ"]), 
+                ("kat", s["kat"]), 
+                ("opis", s["opis"]), 
+                ("ziarno", s["ziarno"]), 
+                ("producent", s["producent"])
+            ]
+            
             for key, val in pola:
                 l = ctk.CTkLabel(f, text=str(val), width=self.col_widths[key], anchor="w", font=self.font_row)
                 l.pack(side="left", padx=5, pady=8)
                 l.bind("<Button-1>", lambda e, cid=s["id"]: self.select_item(cid))
 
+            # Renderowanie stanów ilościowych
             stat_frame = ctk.CTkFrame(f, fg_color="transparent")
-            stat_frame.pack(side="left", padx=5)
-            aktywne = {k: v for k, v in s["ilosc"].items() if v > 0}
-            if not aktywne:
-                ctk.CTkLabel(stat_frame, text="---", text_color="gray", font=self.font_row).pack(side="left")
-            else:
-                for st, il in aktywne.items():
-                    lbl = ctk.CTkLabel(stat_frame, text=f"{st}: {il}", text_color=self.color_map.get(st, "#FFF"), font=("Arial", 12, "bold"))
-                    lbl.pack(side="left", padx=12)
+            stat_frame.pack(side="left", padx=5, fill="y")
+            
+            for st, il in s["ilosc"].items():
+                if il > 0:
+                    lbl = ctk.CTkLabel(
+                        stat_frame, 
+                        text=f"{st.upper()}: {il}", 
+                        text_color=self.color_map.get(st, "#FFF"), 
+                        font=("Arial", 11, "bold")
+                    )
+                    lbl.pack(side="left", padx=10)
                     lbl.bind("<Button-1>", lambda e, cid=s["id"]: self.select_item(cid))
 
     def select_item(self, cid):
+        """Aktywacja przycisków po kliknięciu wiersza."""
         self.selected_id = cid
         self.btn_ed.configure(state="normal")
+        self.btn_del.configure(state="normal") # Aktywujemy przycisk usuwania
         self.odswiez_tabele()
 
     def handle_add(self):
-        kat_czysty = self.c_kat.get().replace("°", "")
-        self.db.dodaj_sciernice(self.c_typ.get(), kat_czysty, self.e_opis.get(), self.e_ziarno.get(), self.c_prod.get(), self.e_il.get())
-        self.e_opis.delete(0, 'end'); self.e_il.delete(0, 'end')
-        self.odswiez_tabele()
+        """Pobiera dane z formularza i wysyła do bazy SQL."""
+        try:
+            ilosc = int(self.e_il.get()) if self.e_il.get() else 0
+            self.db.dodaj_sciernice(
+                self.c_typ.get(), 
+                self.e_param.get(), 
+                self.e_opis.get(), 
+                self.e_ziarno.get(), 
+                self.c_prod.get(), 
+                ilosc
+            )
+            # Czyszczenie pól po dodaniu
+            self.e_opis.delete(0, 'end')
+            self.e_param.delete(0, 'end')
+            self.e_il.delete(0, 'end')
+            self.odswiez_tabele()
+        except ValueError:
+            pass # Można dodać popup z błędem "Ilość musi być liczbą"
 
     def open_edit(self):
+        """Otwiera okno edycji dla zaznaczonego ID."""
         if self.selected_id:
-            item = next(s for s in self.db.dane["sciernice"] if s["id"] == self.selected_id)
-            EditWindow(self, self.db, item, self.odswiez_tabele)
+            # Pobieramy najświeższe dane o tym konkretnym elemencie
+            wszystkie = self.db.pobierz_dane("")
+            item = next((s for s in wszystkie if s["id"] == self.selected_id), None)
+            if item:
+                EditWindow(self, self.db, item, self.odswiez_tabele)
+
+    def confirm_delete_main(self):
+        if self.selected_id:
+            # Pobieramy dane wybranej ściernicy, aby sprawdzić stan
+            wszystkie = self.db.pobierz_dane("")
+            item = next((s for s in wszystkie if s["id"] == self.selected_id), None)
+            
+            if item:
+                suma_sztuk = sum(item["ilosc"].values())
+                msg = f"Czy na pewno usunąć ściernicę ID: {self.selected_id} ({item['typ']} {item['opis']})?"
+                if suma_sztuk > 0:
+                    msg += f"\n\nUWAGA! Na stanie jest jeszcze {suma_sztuk} sztuk!"
+
+                # parent=self gwarantuje, że popup będzie na wierzchu głównego okna
+                if messagebox.askyesno("Potwierdzenie usunięcia", msg, parent=self):
+                    self.db.usun_pozycje(self.selected_id)
+                    self.selected_id = None
+                    self.btn_ed.configure(state="disabled")
+                    self.btn_del.configure(state="disabled")
+                    self.odswiez_tabele()

@@ -7,7 +7,7 @@ def main():
     SCIEZKA_SIECIOWA = Path("//192.168.1.1/technika/Kosiarski/BazaSciernic")
     
     # Pełna ścieżka do pliku JSON
-    PLIK_BAZY = SCIEZKA_SIECIOWA / "magazyn.json"
+    PLIK_BAZY = SCIEZKA_SIECIOWA / "magazyn.db"
     
     # Przekazujemy pełną ścieżkę do bazy
     db = InventoryDB(str(PLIK_BAZY))

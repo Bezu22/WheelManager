@@ -5,38 +5,44 @@ class EditWindow(ctk.CTkToplevel):
     def __init__(self, parent, db, item_data, callback):
         super().__init__(parent)
         self.title(f"Edycja ID: {item_data['id']}")
+        
+        # Ustawienie okna na wierzchu względem rodzica
+        self.transient(parent)
+        self.grab_set() # Blokuje interakcję z oknem pod spodem do czasu zamknięcia
+
+        window_w, window_h = 500, 700 # Nieco niższe okno, bo nie ma przycisku usuń
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
-        x = int((screen_w + 200) / 2)
-        y = int((screen_h - 750) / 2)
-        self.geometry(f"500x750^{x}+{y}")
+        x = int((screen_w - window_w) / 2)
+        y = int((screen_h - window_h) / 2)
+        self.geometry(f"{window_w}x{window_h}+{x}+{y}")
 
         self.db = db
         self.item = item_data
         self.callback = callback
-        self.attributes('-topmost', True)
 
         f_bold = ("Arial", 16, "bold")
         f_norm = ("Arial", 14)
 
         ctk.CTkLabel(self, text="EDYCJA PARAMETRÓW", font=("Arial", 20, "bold")).pack(pady=20)
         
-        # Opis
+        # Dynamiczna etykieta parametru (Kąt/Promień/Szerokość)
+        typ_s = self.item.get("typ", "")
+        p_label = "Parametr:"
+        if typ_s == "1V1": p_label = "Kąt (°):"
+        elif typ_s == "1S1": p_label = "Promień (R):"
+        elif typ_s == "1A1": p_label = "Szerokość (T):"
+
+        # Pola edycyjne
         ctk.CTkLabel(self, text="Opis:", font=f_norm).pack(pady=(10, 0))
-        self.e_opis = ctk.CTkEntry(self, width=350, height=40, font=f_norm)
+        self.e_opis = ctk.CTkEntry(self, width=350, height=40)
         self.e_opis.insert(0, self.item.get("opis", ""))
         self.e_opis.pack(pady=5)
 
-        # Kąt
-        ctk.CTkLabel(self, text="Kąt:", font=f_norm).pack(pady=(10, 0))
-        katy_z_ikona = [f"{k}°" if k != "N/A" else k for k in self.db.dane["konfiguracja"]["katy"]]
-        self.c_kat = ctk.CTkComboBox(self, values=katy_z_ikona, width=350, height=40, font=f_norm)
-        
-        aktualny_kat = str(self.item.get("kat", "N/A"))
-        if aktualny_kat != "N/A" and "°" not in aktualny_kat:
-            aktualny_kat += "°"
-        self.c_kat.set(aktualny_kat)
-        self.c_kat.pack(pady=5)
+        ctk.CTkLabel(self, text=p_label, font=f_norm).pack(pady=(10, 0))
+        self.e_param = ctk.CTkEntry(self, width=350, height=40)
+        self.e_param.insert(0, str(self.item.get("kat", "")))
+        self.e_param.pack(pady=5)
 
         ctk.CTkLabel(self, text="STANY MAGAZYNOWE", font=f_bold).pack(pady=20)
         
@@ -45,34 +51,28 @@ class EditWindow(ctk.CTkToplevel):
             f = ctk.CTkFrame(self)
             f.pack(pady=3, fill="x", padx=40)
             ctk.CTkLabel(f, text=status, width=180, anchor="w", font=f_norm).pack(side="left", padx=10)
-            ent = ctk.CTkEntry(f, width=80, height=35, font=f_norm)
+            ent = ctk.CTkEntry(f, width=80, height=35)
             ent.insert(0, str(ilosc))
             ent.pack(side="right", padx=10)
             self.status_entries[status] = ent
 
-        self.btn_save = ctk.CTkButton(self, text="ZAPISZ ZMIANY", fg_color="#2ecc71", font=f_bold, height=50, command=self.save)
-        self.btn_save.pack(pady=(30, 10))
-
-        self.btn_delete = ctk.CTkButton(self, text="USUŃ POZYCJĘ", fg_color="#e74c3c", height=40, command=self.confirm_delete)
-        self.btn_delete.pack(pady=10)
+        self.btn_save = ctk.CTkButton(
+            self, text="ZAPISZ ZMIANY", 
+            fg_color="#2ecc71", font=f_bold, height=50, 
+            command=self.save
+        )
+        self.btn_save.pack(pady=(40, 10))
 
     def save(self):
         try:
             nowe_ilosci = {s: int(e.get()) for s, e in self.status_entries.items()}
-            czysty_kat = self.c_kat.get().replace("°", "")
-            update = {"opis": self.e_opis.get(), "kat": czysty_kat, "ilosc": nowe_ilosci}
+            update = {
+                "opis": self.e_opis.get(),
+                "kat": self.e_param.get(),
+                "ilosc": nowe_ilosci
+            }
             self.db.aktualizuj_pozycje(self.item["id"], update)
             self.callback()
             self.destroy()
-        except ValueError: pass
-
-    def confirm_delete(self):
-        suma_sztuk = sum(int(e.get()) for e in self.status_entries.values())
-        msg = "Czy usunąć tę ściernicę?"
-        if suma_sztuk > 0:
-            msg = f"UWAGA! Na stanie jest {suma_sztuk} szt. Czy na pewno usunąć?"
-        if messagebox.askyesno("Potwierdzenie", msg):
-            self.db.dane["sciernice"] = [s for s in self.db.dane["sciernice"] if s["id"] != self.item["id"]]
-            self.db.zapisz()
-            self.callback()
-            self.destroy()
+        except ValueError:
+            messagebox.showerror("Błąd", "Wprowadź poprawne liczby w stanach!", parent=self)
