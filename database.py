@@ -4,9 +4,10 @@ import json
 from datetime import datetime 
 
 class InventoryDB:
-    def __init__(self, db_path, config_path):
+    def __init__(self, db_path, config_path,log_path):
         self.db_path = db_path
         self.config_path = config_path
+        self.log_path = log_path
         self.dane = {"konfiguracja": {}}
         self.wczytaj_konfiguracje()
         self.setup_db()
@@ -73,115 +74,148 @@ class InventoryDB:
         return wynik
 
     def dodaj_sciernice(self, typ, kat, opis, ziarno, producent, ilosc_start):
-        """Dodaje nową pozycję i zapisuje fakt utworzenia w logu TXT."""
+        """
+        Dodaje nową ściernicę do bazy i tworzy wpis w logu.
+        """
+        # Standaryzacja danych (zamiana przecinków na kropki dla obliczeń)
         ziarno_std = str(ziarno).upper()
         kat_std = str(kat).replace(',', '.')
         opis_std = str(opis).replace(',', '.')
 
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
+        
+        # Wstawienie rekordu do tabeli
         cur.execute("""
             INSERT INTO sciernice (typ, kat, opis, ziarno, producent, magazyn)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (typ, kat_std, opis_std, ziarno_std, producent, ilosc_start))
         
-        # Pobieramy ID nowo dodanego elementu, aby log był precyzyjny
+        # Pobieramy ID, które baza nadała automatycznie[cite: 2]
         nowe_id = cur.lastrowid
+        
         conn.commit()
         conn.close()
 
-        # Zapis do pliku TXT
-        szczegoly = f"Typ: {typ}, Opis: {opis_std}, Startowa ilość: {ilosc_start}"
-        self._zapisz_log_txt(nowe_id, "NOWA POZYCJA", szczegoly)
+        # Dokumentacja w pliku log.txt
+        info = f"ID:{nowe_id} | Typ:{typ} | Opis:{opis_std} | Ilość:{ilosc_start}"
+        self._zapisz_log("DODANO", info)
 
     def aktualizuj_pozycje(self, id_pozycji, nowe_dane):
-        """Aktualizuje dane i zapisuje zmiany do pliku TXT."""
-        # 1. Pobieramy stan obecny z bazy, żeby wiedzieć co się zmieni[cite: 2]
+        """
+        Aktualizuje dane w bazie i rejestruje szczegółowe różnice w pliku log.txt.
+        """
+        # 1. Pobieramy stare dane, aby wiedzieć co się zmienia
         stare_dane = None
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM sciernice WHERE id=?", (id_pozycji,))
-        stare_dane = cur.fetchone()
-        conn.close()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM sciernice WHERE id=?", (id_pozycji,))
+            stare_dane = cur.fetchone()
+            conn.close()
+        except Exception as e:
+            print(f"Błąd podczas odczytu danych przed aktualizacją: {e}")
+            return
 
         if not stare_dane:
             return
 
-        # 2. Porównujemy stare z nowym
+        # 2. Przygotowujemy listę zmian
         zmiany = []
-        pola_do_sprawdzenia = {
+        
+        # Sprawdzamy pola tekstowe
+        nowy_opis = str(nowe_dane["opis"]).replace(',', '.')
+        nowy_param = str(nowe_dane["kat"]).replace(',', '.')
+        
+        if stare_dane["opis"] != nowy_opis:
+            zmiany.append(f"Opis: '{stare_dane['opis']}' -> '{nowy_opis}'")
+        
+        if stare_dane["kat"] != nowy_param:
+            zmiany.append(f"Parametr: '{stare_dane['kat']}' -> '{nowy_param}'")
+
+        # Sprawdzamy stany magazynowe (ilości)[cite: 3]
+        mapowanie_stanow = {
             "magazyn": nowe_dane["ilosc"].get("magazyn", 0),
             "uzycie": nowe_dane["ilosc"].get("W uzyciu", 0),
             "zamowiona": nowe_dane["ilosc"].get("zamowiona", 0),
             "zlom": nowe_dane["ilosc"].get("zlom", 0)
         }
 
-        for klucz, nowa_val in pola_do_sprawdzenia.items():
-            stara_val = stare_dane[klucz]
-            if int(stara_val) != int(nowa_val):
-                zmiany.append(f"{klucz} ({stara_val}->{nowa_val})")
+        for klucz, nowa_wartosc in mapowanie_stanow.items():
+            stara_wartosc = stare_dane[klucz]
+            if int(stara_wartosc) != int(nowa_wartosc):
+                zmiany.append(f"{klucz}: {stara_wartosc} -> {nowa_wartosc}")
 
-        # 3. Jeśli wykryto zmiany, zapisz do pliku TXT
+        # 3. Jeśli są zmiany, zapisujemy je do logu
         if zmiany:
-            self._zapisz_log_txt(id_pozycji, "EDYCJA", ", ".join(zmiany))
+            szczegoly_logu = f"ID:{id_pozycji} | " + ", ".join(zmiany)
+            self._zapisz_log("AKTUALIZACJA", szczegoly_logu)
 
-        # 4. Zapisujemy nowe dane do bazy danych[cite: 2]
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE sciernice 
-            SET opis=?, kat=?, magazyn=?, uzycie=?, zamowiona=?, zlom=?
-            WHERE id=?
-        """, (
-            str(nowe_dane["opis"]).replace(',', '.'),
-            str(nowe_dane["kat"]).replace(',', '.'),
-            pola_do_sprawdzenia["magazyn"],
-            pola_do_sprawdzenia["uzycie"],
-            pola_do_sprawdzenia["zamowiona"],
-            pola_do_sprawdzenia["zlom"],
-            id_pozycji
-        ))
-        conn.commit()
-        conn.close()
-
-    def usun_pozycje(self, id_pozycji):
-        """Pobiera dane o pozycji, usuwa ją z bazy i zapisuje fakt w logu TXT."""
-        # 1. Najpierw pobierz dane, żeby wiedzieć co usuwasz
-        informacja_o_usuwanym = "Nieznany element"
+        # 4. Wykonujemy faktyczny zapis w bazie SQL[cite: 2]
         try:
             conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
             cur = conn.cursor()
+            cur.execute("""
+                UPDATE sciernice 
+                SET opis=?, kat=?, magazyn=?, uzycie=?, zamowiona=?, zlom=?
+                WHERE id=?
+            """, (
+                nowy_opis, nowy_param, 
+                mapowanie_stanow["magazyn"],
+                mapowanie_stanow["uzycie"],
+                mapowanie_stanow["zamowiona"],
+                mapowanie_stanow["zlom"],
+                id_pozycji
+            ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Błąd podczas zapisu do bazy danych: {e}")
+
+    def usun_pozycje(self, id_pozycji):
+        """
+        Usuwa ściernicę o podanym ID. Najpierw sprawdza jej dane, aby zapisać je w logu.
+        """
+        # 1. KROK EDUKACYJNY: Musimy najpierw pobrać dane, bo po usunięciu ich nie odzyskamy[cite: 2]
+        opis_do_logu = f"ID:{id_pozycji}"
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row # Pozwala na dostęp do kolumn po nazwach[cite: 2]
+            cur = conn.cursor()
+            
+            # Pobieramy szczegóły usuwanego przedmiotu
             cur.execute("SELECT typ, opis FROM sciernice WHERE id=?", (id_pozycji,))
             row = cur.fetchone()
-            if row:
-                informacja_o_usuwanym = f"{row['typ']} - {row['opis']}"
             
-            # 2. Usuń rekord
+            if row:
+                opis_elementu = f"{row['typ']} {row['opis']}"
+                opis_do_logu = f"ID:{id_pozycji} ({opis_elementu})"
+
+            # 2. Usuwamy właściwy rekord[cite: 2]
             cur.execute("DELETE FROM sciernice WHERE id=?", (id_pozycji,))
+            
             conn.commit()
             conn.close()
             
-            # 3. Zapisz do logu TXT
-            self._zapisz_log_txt(id_pozycji, "USUNIĘCIE", informacja_o_usuwanym)
+            # Zapisujemy informację o usunięciu do logu
+            self._zapisz_log("USUNIĘTO", opis_do_logu)
             
         except Exception as e:
-            print(f"Błąd podczas usuwania: {e}")
+            print(f"Błąd podczas usuwania pozycji: {e}")
 
-    def _zapisz_log_txt(self, id_sciernicy, akcja, szczegoly):
-        """Zapisuje zdarzenie do pliku historia.txt w folderze bazy danych."""
-        # Tworzymy ścieżkę do pliku logu w tym samym folderze co baza danych
-        log_path = os.path.join(os.path.dirname(self.db_path), "historia_zmian.txt")
-        
+    def _zapisz_log(self, akcja, szczegoly):
+        """Prywatna metoda dopisująca linię do pliku log.txt."""
         teraz = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        wpis = f"[{teraz}] ID:{id_sciernicy} | Akcja: {akcja} | Zmiany: {szczegoly}\n"
+        linia = f"[{teraz}] {akcja.upper()}: {szczegoly}\n"
         
         try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(wpis)
+            # Używamy kodowania utf-8, aby polskie znaki wyświetlały się poprawnie
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(linia)
         except Exception as e:
-            print(f"Błąd zapisu logu: {e}")
+            print(f"Błąd zapisu do logu: {e}")
 
     @property
     def lista_typow(self):
