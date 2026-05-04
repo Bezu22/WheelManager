@@ -206,9 +206,12 @@ class MagazynGUI(ctk.CTk):
         try:
             il = int(self.e_il.get()) if self.e_il.get() else 0
             self.db.dodaj_sciernice(
-                self.c_typ.get(), self.e_param.get(), 
-                self.e_opis.get(), self.e_ziarno.get(), 
-                self.c_prod.get(), il
+                self.c_typ.get(), 
+                self.e_param.get(), 
+                self.e_opis.get(), 
+                self.e_ziarno.get().upper(),
+                self.c_prod.get(), 
+                il
             )
             # Czyszczenie pól po sukcesie
             self.e_opis.delete(0, 'end')

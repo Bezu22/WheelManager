@@ -64,14 +64,23 @@ class InventoryDB:
         conn.close()
 
     def pobierz_dane(self, filtr=""):
-        """Pobiera dane z filtrowaniem dla wyszukiwarki[cite: 6]."""
+        """Pobiera dane z filtrowaniem uwzględniającym typ, opis, producenta, ziarno i parametr."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         
-        query = "SELECT * FROM sciernice WHERE typ LIKE ? OR opis LIKE ? OR producent LIKE ?"
+        # Dodajemy kolumny 'ziarno' oraz 'kat' do warunku LIKE
+        query = """
+            SELECT * FROM sciernice 
+            WHERE typ LIKE ? 
+            OR opis LIKE ? 
+            OR producent LIKE ? 
+            OR ziarno LIKE ? 
+            OR kat LIKE ?
+        """
         f = f"%{filtr}%"
-        cur.execute(query, (f, f, f))
+        # Przekazujemy parametr 5 razy (dla każdej kolumny)
+        cur.execute(query, (f, f, f, f, f))
         
         rows = cur.fetchall()
         wynik = []
@@ -94,18 +103,27 @@ class InventoryDB:
         return wynik
 
     def dodaj_sciernice(self, typ, kat, opis, ziarno, producent, ilosc_start):
-        """Dodaje nową pozycję do bazy danych[cite: 6]."""
+        """Zapisuje nową ściernicę z wymuszeniem formatowania danych."""
+        # Konwersja: ziarno na uppercase, parametr i opis zamiana ',' na '.'
+        ziarno_std = str(ziarno).upper()
+        kat_std = str(kat).replace(',', '.')
+        opis_std = str(opis).replace(',', '.')
+
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO sciernice (typ, kat, opis, ziarno, producent, magazyn)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (typ, kat, opis, ziarno, producent, ilosc_start))
+        """, (typ, kat_std, opis_std, ziarno_std, producent, ilosc_start))
         conn.commit()
         conn.close()
 
     def aktualizuj_pozycje(self, id_pozycji, nowe_dane):
-        """Aktualizuje istniejącą pozycję na podstawie słownika z GUI[cite: 6]."""
+        """Aktualizuje pozycję z wymuszeniem formatowania danych[cite: 6]."""
+        # Standaryzacja parametrów tekstowych przed SQL UPDATE
+        opis_std = str(nowe_dane["opis"]).replace(',', '.')
+        kat_std = str(nowe_dane["kat"]).replace(',', '.')
+        
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
         cur.execute("""
@@ -113,8 +131,8 @@ class InventoryDB:
             SET opis=?, kat=?, magazyn=?, uzycie=?, zamowiona=?, zlom=?
             WHERE id=?
         """, (
-            nowe_dane["opis"], 
-            nowe_dane["kat"], 
+            opis_std, 
+            kat_std, 
             nowe_dane["ilosc"].get("magazyn", 0),
             nowe_dane["ilosc"].get("W uzyciu", 0),
             nowe_dane["ilosc"].get("zamowiona", 0),
