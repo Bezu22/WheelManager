@@ -8,9 +8,10 @@ def main():
     
     # Pełna ścieżka do pliku JSON
     PLIK_BAZY = SCIEZKA_SIECIOWA / "magazyn.db"
+    PLIK_CONFIG = SCIEZKA_SIECIOWA / "config.json"
     
     # Przekazujemy pełną ścieżkę do bazy
-    db = InventoryDB(str(PLIK_BAZY))
+    db = InventoryDB(str(PLIK_BAZY),str(PLIK_CONFIG))
     
     app = MagazynGUI(db)
     app.mainloop()

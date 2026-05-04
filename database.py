@@ -1,17 +1,20 @@
 import sqlite3
 import os
+import json
 
 class InventoryDB:
-    def __init__(self, db_path):
+    def __init__(self, db_path, config_path):
+        """
+        Inicjalizacja bazy danych i wczytanie konfiguracji.
+        Obie ścieżki są przekazywane jako atrybuty.
+        """
         self.db_path = db_path
-        # Przykładowa konfiguracja (można ją przenieść do osobnego JSONa później)
-        self.dane = {
-            "konfiguracja": {
-                "typy": ["1A1", "1V1", "11V9", "1S1"],
-                "producenci": ["Tyrolit", "Toolgal", "DrMuller"],
-                "statusy": ["magazyn", "W uzyciu", "zamowiona", "zlom"]
-            }
-        }
+        self.config_path = config_path
+        self.dane = {"konfiguracja": {}}
+        
+        # Próba wczytania konfiguracji z pliku. 
+        # Brak metody domyślnej wymusza istnienie pliku JSON.
+        self.wczytaj_konfiguracje()
         self.setup_db()
 
     def polacz(self):
@@ -23,8 +26,24 @@ class InventoryDB:
         except Exception:
             return False
 
+    def wczytaj_konfiguracje(self):
+        """
+        Wczytuje strukturę konfiguracji bezpośrednio z pliku JSON.
+        Jeśli plik nie istnieje lub jest uszkodzony, rzuca błąd, co zapobiega 
+        działaniu programu na nieprawidłowych danych[cite: 6].
+        """
+        if not os.path.exists(self.config_path):
+            print(f"BŁĄD: Plik konfiguracji {self.config_path} nie istnieje!")
+            return
+
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                self.dane["konfiguracja"] = json.load(f)
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"BŁĄD podczas wczytywania JSON: {e}")
+
     def setup_db(self):
-        """Inicjalizuje tabelę jeśli nie istnieje."""
+        """Inicjalizuje tabelę SQLite, jeśli nie istnieje w podanej lokalizacji[cite: 6]."""
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
         cur.execute("""
@@ -45,7 +64,7 @@ class InventoryDB:
         conn.close()
 
     def pobierz_dane(self, filtr=""):
-        """Pobiera dane z filtrowaniem pod Searchbar."""
+        """Pobiera dane z filtrowaniem dla wyszukiwarki[cite: 6]."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -75,6 +94,7 @@ class InventoryDB:
         return wynik
 
     def dodaj_sciernice(self, typ, kat, opis, ziarno, producent, ilosc_start):
+        """Dodaje nową pozycję do bazy danych[cite: 6]."""
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
         cur.execute("""
@@ -85,9 +105,9 @@ class InventoryDB:
         conn.close()
 
     def aktualizuj_pozycje(self, id_pozycji, nowe_dane):
+        """Aktualizuje istniejącą pozycję na podstawie słownika z GUI[cite: 6]."""
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
-        # Mapowanie kluczy z GUI na kolumny SQL
         cur.execute("""
             UPDATE sciernice 
             SET opis=?, kat=?, magazyn=?, uzycie=?, zamowiona=?, zlom=?
@@ -105,8 +125,14 @@ class InventoryDB:
         conn.close()
 
     def usun_pozycje(self, id_pozycji):
+        """Usuwa ściernicę o danym ID z bazy[cite: 6]."""
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
         cur.execute("DELETE FROM sciernice WHERE id=?", (id_pozycji,))
         conn.commit()
         conn.close()
+
+    @property
+    def lista_typow(self):
+        """Pomocnicza metoda zwracająca tylko nazwy typów do ComboBoxa z JSON[cite: 6]."""
+        return list(self.dane["konfiguracja"].get("typy_ustawienia", {}).keys())
