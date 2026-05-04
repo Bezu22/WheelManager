@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import json
+from datetime import datetime 
 
 class InventoryDB:
     def __init__(self, db_path, config_path):
@@ -11,7 +12,7 @@ class InventoryDB:
         self.setup_db()
 
     def polacz(self):
-        """Sprawdza dostępność bazy danych[cite: 6]."""
+        """Sprawdza dostępność bazy danych."""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.close()
@@ -20,7 +21,7 @@ class InventoryDB:
             return False
 
     def wczytaj_konfiguracje(self):
-        """Wczytuje strukturę z JSON bez wartości domyślnych w kodzie[cite: 6]."""
+        """Wczytuje strukturę z JSON bez wartości domyślnych w kodzie."""
         if not os.path.exists(self.config_path):
             return
         try:
@@ -72,7 +73,7 @@ class InventoryDB:
         return wynik
 
     def dodaj_sciernice(self, typ, kat, opis, ziarno, producent, ilosc_start):
-        """Dodaje nową pozycję ze standaryzacją znaków[cite: 6]."""
+        """Dodaje nową pozycję i zapisuje fakt utworzenia w logu TXT."""
         ziarno_std = str(ziarno).upper()
         kat_std = str(kat).replace(',', '.')
         opis_std = str(opis).replace(',', '.')
@@ -83,14 +84,49 @@ class InventoryDB:
             INSERT INTO sciernice (typ, kat, opis, ziarno, producent, magazyn)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (typ, kat_std, opis_std, ziarno_std, producent, ilosc_start))
+        
+        # Pobieramy ID nowo dodanego elementu, aby log był precyzyjny
+        nowe_id = cur.lastrowid
         conn.commit()
         conn.close()
 
+        # Zapis do pliku TXT
+        szczegoly = f"Typ: {typ}, Opis: {opis_std}, Startowa ilość: {ilosc_start}"
+        self._zapisz_log_txt(nowe_id, "NOWA POZYCJA", szczegoly)
+
     def aktualizuj_pozycje(self, id_pozycji, nowe_dane):
-        """Aktualizuje dane z zamianą przecinków na kropki[cite: 6]."""
-        opis_std = str(nowe_dane["opis"]).replace(',', '.')
-        kat_std = str(nowe_dane["kat"]).replace(',', '.')
-        
+        """Aktualizuje dane i zapisuje zmiany do pliku TXT."""
+        # 1. Pobieramy stan obecny z bazy, żeby wiedzieć co się zmieni[cite: 2]
+        stare_dane = None
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM sciernice WHERE id=?", (id_pozycji,))
+        stare_dane = cur.fetchone()
+        conn.close()
+
+        if not stare_dane:
+            return
+
+        # 2. Porównujemy stare z nowym
+        zmiany = []
+        pola_do_sprawdzenia = {
+            "magazyn": nowe_dane["ilosc"].get("magazyn", 0),
+            "uzycie": nowe_dane["ilosc"].get("W uzyciu", 0),
+            "zamowiona": nowe_dane["ilosc"].get("zamowiona", 0),
+            "zlom": nowe_dane["ilosc"].get("zlom", 0)
+        }
+
+        for klucz, nowa_val in pola_do_sprawdzenia.items():
+            stara_val = stare_dane[klucz]
+            if int(stara_val) != int(nowa_val):
+                zmiany.append(f"{klucz} ({stara_val}->{nowa_val})")
+
+        # 3. Jeśli wykryto zmiany, zapisz do pliku TXT
+        if zmiany:
+            self._zapisz_log_txt(id_pozycji, "EDYCJA", ", ".join(zmiany))
+
+        # 4. Zapisujemy nowe dane do bazy danych[cite: 2]
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
         cur.execute("""
@@ -98,23 +134,54 @@ class InventoryDB:
             SET opis=?, kat=?, magazyn=?, uzycie=?, zamowiona=?, zlom=?
             WHERE id=?
         """, (
-            opis_std, kat_std, 
-            nowe_dane["ilosc"].get("magazyn", 0),
-            nowe_dane["ilosc"].get("W uzyciu", 0),
-            nowe_dane["ilosc"].get("zamowiona", 0),
-            nowe_dane["ilosc"].get("zlom", 0),
+            str(nowe_dane["opis"]).replace(',', '.'),
+            str(nowe_dane["kat"]).replace(',', '.'),
+            pola_do_sprawdzenia["magazyn"],
+            pola_do_sprawdzenia["uzycie"],
+            pola_do_sprawdzenia["zamowiona"],
+            pola_do_sprawdzenia["zlom"],
             id_pozycji
         ))
         conn.commit()
         conn.close()
 
     def usun_pozycje(self, id_pozycji):
-        """Usuwa rekord z bazy[cite: 6]."""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        cur.execute("DELETE FROM sciernice WHERE id=?", (id_pozycji,))
-        conn.commit()
-        conn.close()
+        """Pobiera dane o pozycji, usuwa ją z bazy i zapisuje fakt w logu TXT."""
+        # 1. Najpierw pobierz dane, żeby wiedzieć co usuwasz
+        informacja_o_usuwanym = "Nieznany element"
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT typ, opis FROM sciernice WHERE id=?", (id_pozycji,))
+            row = cur.fetchone()
+            if row:
+                informacja_o_usuwanym = f"{row['typ']} - {row['opis']}"
+            
+            # 2. Usuń rekord
+            cur.execute("DELETE FROM sciernice WHERE id=?", (id_pozycji,))
+            conn.commit()
+            conn.close()
+            
+            # 3. Zapisz do logu TXT
+            self._zapisz_log_txt(id_pozycji, "USUNIĘCIE", informacja_o_usuwanym)
+            
+        except Exception as e:
+            print(f"Błąd podczas usuwania: {e}")
+
+    def _zapisz_log_txt(self, id_sciernicy, akcja, szczegoly):
+        """Zapisuje zdarzenie do pliku historia.txt w folderze bazy danych."""
+        # Tworzymy ścieżkę do pliku logu w tym samym folderze co baza danych
+        log_path = os.path.join(os.path.dirname(self.db_path), "historia_zmian.txt")
+        
+        teraz = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        wpis = f"[{teraz}] ID:{id_sciernicy} | Akcja: {akcja} | Zmiany: {szczegoly}\n"
+        
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(wpis)
+        except Exception as e:
+            print(f"Błąd zapisu logu: {e}")
 
     @property
     def lista_typow(self):
