@@ -1,120 +1,116 @@
 import customtkinter as ctk
 from tkinter import messagebox
 
-class EditWindow(ctk.CTkToplevel):
-    def __init__(self, parent, db, item_data, callback):
+class BaseDialog(ctk.CTkToplevel):
+    """Klasa bazowa dla okien dialogowych zapewniająca spójność wizualną."""
+    def __init__(self, parent, title, width=400, height=500):
         super().__init__(parent)
-        self.db = db
-        self.item = item_data
-        self.callback = callback
-
-        # --- USTAWIENIA OKNA ---
-        self.title(f"Edycja ID: {self.item['id']}")
-        
-        # Blokowanie okna głównego i wymuszenie wierzchu
+        self.title(title)
         self.transient(parent)
         self.grab_set()
         
-        window_w, window_h = 500, 750
+        # Centrowanie okna względem ekranu
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
-        x = int((screen_w - window_w) / 2)
-        y = int((screen_h - window_h) / 2)
-        self.geometry(f"{window_w}x{window_h}+{x}+{y}")
+        x = int((screen_w - width) / 2)
+        y = int((screen_h - height) / 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.attributes("-topmost", True)
 
-        # --- STYLE I CZCIONKI ---
+class EditWindow(BaseDialog):
+    """Komponent okna edycji - zarządza własnym formularzem."""
+    def __init__(self, parent, db, item_data, on_save_callback):
+        super().__init__(parent, f"Edycja ID: {item_data['id']}", 500, 750)
+        self.db = db
+        self.item = item_data
+        self.on_save = on_save_callback
+        self.status_entries = {}
+        self._setup_ui()
+
+    def _setup_ui(self):
         f_bold = ("Arial", 16, "bold")
         f_norm = ("Arial", 14)
 
-        # --- DYNAMICZNA KONFIGURACJA PARAMETRU ---
-        # Pobieramy ustawienia dla danego typu z konfiguracji wczytanej z JSON
-        typ_s = self.item.get("typ", "")
-        ustawienia_typow = self.db.dane["konfiguracja"].get("typy_ustawienia", {})
-        konfig_typu = ustawienia_typow.get(typ_s, {})
-        
-        label_base = konfig_typu.get("label", "Parametr")
-        prefix = konfig_typu.get("prefix", "")
-        suffix = konfig_typu.get("suffix", "")
-        
-        # Budujemy czytelną etykietę, np. "Promień (R ...):"
-        hint = f" ({prefix}...{suffix})" if (prefix or suffix) else ""
-        p_label_text = f"{label_base}{hint}:"
+        # Pobieranie konfiguracji typu ściernicy
+        conf = self.db.dane["konfiguracja"].get("typy_ustawienia", {}).get(self.item['typ'], {})
+        label_text = f"{conf.get('label', 'Parametr')} ({conf.get('prefix', '')}...{conf.get('suffix', '')}):"
 
-        # --- BUDOWA INTERFEJSU ---
         ctk.CTkLabel(self, text="EDYCJA POZYCJI", font=("Arial", 22, "bold")).pack(pady=20)
-
-        # Informacja o Typie (nieedytowalne dla bezpieczeństwa bazy)
-        ctk.CTkLabel(self, text=f"Typ ściernicy: {typ_s}", font=f_bold, text_color="#3498db").pack(pady=5)
-
-        # Pole: Opis
-        ctk.CTkLabel(self, text="Opis wymiarowy:", font=f_norm).pack(pady=(20, 0))
-        self.e_opis = ctk.CTkEntry(self, width=380, height=40, font=f_norm)
-        self.e_opis.insert(0, self.item.get("opis", ""))
-        self.e_opis.pack(pady=5)
-
-        # Pole: Parametr (dynamiczny)
-        ctk.CTkLabel(self, text=p_label_text, font=f_norm).pack(pady=(15, 0))
-        self.e_param = ctk.CTkEntry(self, width=380, height=40, font=f_norm)
-        self.e_param.insert(0, str(self.item.get("kat", "")))
-        self.e_param.pack(pady=5)
-
-        # Sekcja: Stany Magazynowe
-        ctk.CTkLabel(self, text="STANY MAGAZYNOWE", font=f_bold).pack(pady=25)
         
-        self.status_entries = {}
-        # Pobieramy listę statusów z konfiguracji
+        # Pola tekstowe
+        self.e_opis = self._create_input("Opis wymiarowy:", self.item.get("opis", ""), f_norm)
+        self.e_param = self._create_input(label_text, str(self.item.get("kat", "")), f_norm)
+
+        # Sekcja ilościowa
+        ctk.CTkLabel(self, text="STANY MAGAZYNOWE", font=f_bold).pack(pady=25)
         lista_statusow = self.db.dane["konfiguracja"].get("statusy", ["magazyn", "W uzyciu", "zamowiona", "zlom"])
         
         for status in lista_statusow:
-            f = ctk.CTkFrame(self, fg_color="transparent")
-            f.pack(pady=3, fill="x", padx=60)
+            frame = ctk.CTkFrame(self, fg_color="transparent")
+            frame.pack(pady=3, fill="x", padx=60)
+            ctk.CTkLabel(frame, text=status, width=150, anchor="w", font=f_norm).pack(side="left")
             
-            ctk.CTkLabel(f, text=status, width=150, anchor="w", font=f_norm).pack(side="left")
-            
-            ent = ctk.CTkEntry(f, width=80, height=35, font=f_norm)
-            # Pobieramy aktualną ilość dla danego statusu
-            aktualna_ilosc = self.item["ilosc"].get(status, 0)
-            ent.insert(0, str(aktualna_ilosc))
+            ent = ctk.CTkEntry(frame, width=80, height=35, font=f_norm)
+            ent.insert(0, str(self.item["ilosc"].get(status, 0)))
             ent.pack(side="right")
-            
             self.status_entries[status] = ent
 
-        # Przycisk Zapisu
-        self.btn_save = ctk.CTkButton(
-            self, 
-            text="ZAPISZ ZMIANY", 
-            fg_color="#2ecc71", 
-            hover_color="#27ae60",
-            font=f_bold, 
-            height=55, 
-            width=380,
-            command=self.save
-        )
-        self.btn_save.pack(pady=(40, 20))
+        ctk.CTkButton(self, text="ZAPISZ ZMIANY", fg_color="#2ecc71", font=f_bold, 
+                     height=55, width=380, command=self._handle_save).pack(pady=(40, 20))
 
-    def save(self):
-        """Walidacja i zapis danych do bazy SQL."""
+    def _create_input(self, label, value, font):
+        ctk.CTkLabel(self, text=label, font=font).pack(pady=(10, 0))
+        entry = ctk.CTkEntry(self, width=380, height=40, font=font)
+        entry.insert(0, value)
+        entry.pack(pady=5)
+        return entry
+
+    def _handle_save(self):
         try:
-            # Konwersja pól stanów na liczby całkowite
             nowe_ilosci = {s: int(e.get()) for s, e in self.status_entries.items()}
-            
             update_data = {
                 "opis": self.e_opis.get(),
                 "kat": self.e_param.get(),
                 "ilosc": nowe_ilosci
             }
-            
-            # Wywołanie aktualizacji w bazie danych
             self.db.aktualizuj_pozycje(self.item["id"], update_data)
-            
-            # Odświeżenie tabeli głównej i zamknięcie okna
-            self.callback()
+            self.on_save()
             self.destroy()
-            
         except ValueError:
-            # parent=self zapewnia, że błąd nie schowa się pod oknem
-            messagebox.showerror(
-                "Błąd formatu", 
-                "Pola ilościowe muszą zawierać tylko liczby całkowite!", 
-                parent=self
-            )
+            messagebox.showerror("Błąd", "Pola ilościowe muszą być liczbami!", parent=self)
+
+class FilterPopup(BaseDialog):
+    """Komponent okna filtra - enkapsuluje logikę wyboru wartości."""
+    def __init__(self, parent, column_name, display_name, db, active_filters, on_apply_callback):
+        super().__init__(parent, f"Filtr: {display_name}", 280, 420)
+        self.db = db
+        self.column_name = column_name
+        self.active_filters = active_filters
+        self.on_apply = on_apply_callback
+        self.vars = {}
+        self._setup_ui()
+
+    def _setup_ui(self):
+        options = self.db.pobierz_unikalne_wartosci(self.column_name)
+        
+        all_var = ctk.BooleanVar(value=len(self.active_filters) == 0)
+        ctk.CTkCheckBox(self, text="Zaznacz wszystko", variable=all_var, 
+                        command=lambda: [v.set(all_var.get()) for v in self.vars.values()]).pack(pady=10, padx=10, anchor="w")
+        
+        scroll = ctk.CTkScrollableFrame(self)
+        scroll.pack(fill="both", expand=True, padx=10, pady=5)
+
+        for opt in options:
+            is_sel = opt in self.active_filters if self.active_filters else True
+            v = ctk.BooleanVar(value=is_sel)
+            ctk.CTkCheckBox(scroll, text=opt, variable=v).pack(pady=2, padx=5, anchor="w")
+            self.vars[opt] = v
+
+        ctk.CTkButton(self, text="Zastosuj", fg_color="#1f538d", command=self._apply).pack(pady=10)
+
+    def _apply(self):
+        selected = [opt for opt, v in self.vars.items() if v.get()]
+        # Zwracamy listę wybranych elementów lub pustą listę (jeśli wybrano wszystko)
+        final_selection = selected if len(selected) < len(self.vars) else []
+        self.on_apply(self.column_name, final_selection)
+        self.destroy()
