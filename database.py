@@ -46,24 +46,38 @@ class InventoryDB:
         conn.commit()
         conn.close()
 
-    def pobierz_dane(self, filtr="", aktywne_filtry=None):
-        """Pobiera dane z uwzględnieniem wyszukiwarki i filtrów kolumnowych."""
+    def pobierz_dane(self, filtr="", aktywne_filtry=None, filter_order=None):
+        """Pobiera dane z dynamicznym sortowaniem zależnym od kolejności filtrów[cite: 8]."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         
-        # 1. Podstawowe zapytanie szukające w Opisie i Parametrze
         query = "SELECT * FROM sciernice WHERE (opis LIKE ? OR kat LIKE ?)"
         f = f"%{filtr}%"
         params = [f, f]
         
-        # 2. Dynamiczne dodawanie filtrów kolumnowych (TYP, ZIARNO, PRODUCENT)[cite: 2]
         if aktywne_filtry:
             for col, values in aktywne_filtry.items():
-                if values: # Jeśli lista nie jest pusta, stosujemy filtr
+                if values:
                     placeholders = ", ".join(["?"] * len(values))
                     query += f" AND {col} IN ({placeholders})"
                     params.extend(values)
+        
+        # BUDOWANIE DYNAMICZNEGO SORTOWANIA[cite: 8]
+        order_clauses = []
+        
+        # Jeśli użytkownik klikał filtry, użyj jego kolejności:
+        if filter_order:
+            for col in filter_order:
+                order_clauses.append(f"{col} ASC")
+        
+        # Dodaj domyślne sortowanie na końcu dla pozostałych pól:
+        domyslne = ["typ", "ziarno", "producent", "opis"]
+        for d in domyslne:
+            if f"{d} ASC" not in order_clauses:
+                order_clauses.append(f"{d} ASC")
+        
+        query += " ORDER BY " + ", ".join(order_clauses)
         
         cur.execute(query, params)
         rows = cur.fetchall()

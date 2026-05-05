@@ -7,6 +7,7 @@ class MagazynGUI(ctk.CTk):
         super().__init__()
         self.db = db
         self.selected_id = None
+        self._filter_popup = None
         self.widzety_wierszy = {}
         self._ostatnia_fraza = ""
         self.active_filters = {
@@ -14,6 +15,7 @@ class MagazynGUI(ctk.CTk):
             "ziarno": [],
             "producent": []
         }
+        self.filter_order = [] # do śledzenia kolejności kliknięć
 
         self.window_width, self.window_height = 1450, 850
         pos_x = int((self.winfo_screenwidth() - self.window_width) / 2)
@@ -133,7 +135,7 @@ class MagazynGUI(ctk.CTk):
             self.widzety_wierszy = {}
             
             # POBIERANIE DANYCH
-            dane = self.db.pobierz_dane(fraza, self.active_filters)
+            dane = self.db.pobierz_dane(fraza, self.active_filters, self.filter_order)
             
             ustawienia = self.db.dane["konfiguracja"].get("typy_ustawienia", {})
 
@@ -202,33 +204,45 @@ class MagazynGUI(ctk.CTk):
         ctk.CTkButton(f, text="PONÓW", command=self.sprawdz_polaczenie).pack(pady=10)
 
     def show_popup_filter(self, column_name, display_name):
-        """Uniwersalne okno filtra z checkboxami."""
+        """Uniwersalne okno filtra z rygorystyczną blokadą wielokrotnego otwarcia."""
+        
+        # 1. Sprawdzenie czy okno istnieje. winfo_exists() jest kluczowe, 
+        # bo zmienna może nie być None, mimo że okno zostało zamknięte przez 'X'.
+        if self._filter_popup is not None and self._filter_popup.winfo_exists():
+            self._filter_popup.focus()  # Przywołaj istniejące okno na wierzch
+            return
+
+        # 2. Pobranie unikalnych wartości z bazy danych[cite: 2]
         all_options = self.db.pobierz_unikalne_wartosci(column_name)
 
-        popup = ctk.CTkToplevel(self)
-        popup.title(f"Filtr: {display_name}")
-        popup.geometry("280x420")
-        popup.attributes("-topmost", True)
+        # 3. Tworzenie okna
+        self._filter_popup = ctk.CTkToplevel(self)
+        self._filter_popup.title(f"Filtr: {display_name}")
+        self._filter_popup.geometry("280x420")
+        self._filter_popup.attributes("-topmost", True)
         
-        # Pozycjonowanie przy kursorze
+        # Pozycjonowanie przy kursorze myszy
         x = self.winfo_pointerx()
         y = self.winfo_pointery()
-        popup.geometry(f"+{x}+{y}")
+        self._filter_popup.geometry(f"+{x}+{y}")
+
+        # 4. Obsługa zamknięcia okna przez "X" w rogu (systemowe zamknięcie)
+        # Bez tego, po kliknięciu X zmienna _filter_popup nie stałaby się None
+        self._filter_popup.protocol("WM_DELETE_WINDOW", self._on_filter_popup_close)
 
         vars = {}
-        # Jeśli lista filtrów jest pusta, zaznaczamy wszystko na start
         is_all_selected = len(self.active_filters[column_name]) == 0
         all_var = ctk.BooleanVar(value=is_all_selected)
 
         def toggle_all():
             for v in vars.values(): v.set(all_var.get())
 
-        ctk.CTkCheckBox(popup, text="Zaznacz wszystko", variable=all_var, command=toggle_all).pack(pady=10, padx=10, anchor="w")
-        scroll = ctk.CTkScrollableFrame(popup)
+        ctk.CTkCheckBox(self._filter_popup, text="Zaznacz wszystko", variable=all_var, command=toggle_all).pack(pady=10, padx=10, anchor="w")
+        
+        scroll = ctk.CTkScrollableFrame(self._filter_popup)
         scroll.pack(fill="both", expand=True, padx=10, pady=5)
 
         for opt in all_options:
-            # Sprawdzamy czy dana opcja była wcześniej wybrana
             is_selected = opt in self.active_filters[column_name] if self.active_filters[column_name] else True
             v = ctk.BooleanVar(value=is_selected)
             ctk.CTkCheckBox(scroll, text=opt, variable=v).pack(pady=2, padx=5, anchor="w")
@@ -239,14 +253,26 @@ class MagazynGUI(ctk.CTk):
             
             if 0 < len(selected) < len(all_options):
                 self.active_filters[column_name] = selected
-                # Zmieniamy tekst nagłówka na żółty, żeby było widać, że filtr działa
                 self.header_labels[column_name].configure(text_color="#f1c40f")
+                
+                # Dynamiczne zarządzanie kolejnością:
+                if column_name not in self.filter_order:
+                    self.filter_order.append(column_name) # Dodaj na koniec jako najważniejszy[cite: 7]
             else:
                 self.active_filters[column_name] = []
-                # Powrót do białego koloru
                 self.header_labels[column_name].configure(text_color="#FFFFFF")
+                
+                # Usuń z kolejki, jeśli filtr został wyłączony:
+                if column_name in self.filter_order:
+                    self.filter_order.remove(column_name)[cite: 7]
             
-            popup.destroy()
+            self._on_filter_popup_close()
             self.odswiez_tabele(pelne=True)
 
-        ctk.CTkButton(popup, text="Zastosuj", fg_color="#1f538d", command=apply).pack(pady=10)
+        ctk.CTkButton(self._filter_popup, text="Zastosuj", fg_color="#1f538d", command=apply).pack(pady=10)
+
+    def _on_filter_popup_close(self):
+        """Pomocnicza metoda niszcząca okno i resetująca referencję."""
+        if self._filter_popup:
+            self._filter_popup.destroy()
+            self._filter_popup = None
