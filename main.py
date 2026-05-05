@@ -22,6 +22,9 @@ def main():
     # 3. Uruchomienie Widoku (GUI)
     # GUI otrzymuje obiekt bazy
     app = MagazynGUI(db)
+
+    # WYMUSZENIE ZMAKSYMALIZOWANEGO OKNA
+    app.after(0, lambda: app.state('zoomed'))
     
     # Start pętli zdarzeń
     app.mainloop()
