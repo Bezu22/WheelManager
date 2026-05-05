@@ -32,7 +32,7 @@ class InventoryDB:
             print(f"Błąd wczytywania JSON: {e}")
 
     def setup_db(self):
-        """Tworzy tabelę SQLite[cite: 6]."""
+        """Tworzy tabelę SQLite."""
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
         cur.execute("""
@@ -47,7 +47,7 @@ class InventoryDB:
         conn.close()
 
     def pobierz_dane(self, filtr="", aktywne_filtry=None, filter_order=None):
-        """Pobiera dane z dynamicznym sortowaniem zależnym od kolejności filtrów[cite: 8]."""
+        """Pobiera dane z dynamicznym sortowaniem zależnym od kolejności filtrów."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -63,7 +63,7 @@ class InventoryDB:
                     query += f" AND {col} IN ({placeholders})"
                     params.extend(values)
         
-        # BUDOWANIE DYNAMICZNEGO SORTOWANIA[cite: 8]
+        # BUDOWANIE DYNAMICZNEGO SORTOWANIA
         order_clauses = []
         
         # Jeśli użytkownik klikał filtry, użyj jego kolejności:
@@ -113,7 +113,7 @@ class InventoryDB:
             VALUES (?, ?, ?, ?, ?, ?)
         """, (typ, kat_std, opis_std, ziarno_std, producent, ilosc_start))
         
-        # Pobieramy ID, które baza nadała automatycznie[cite: 2]
+        # Pobieramy ID, które baza nadała automatycznie
         nowe_id = cur.lastrowid
         
         conn.commit()
@@ -156,7 +156,7 @@ class InventoryDB:
         if stare_dane["kat"] != nowy_param:
             zmiany.append(f"Parametr: '{stare_dane['kat']}' -> '{nowy_param}'")
 
-        # Sprawdzamy stany magazynowe (ilości)[cite: 3]
+        # Sprawdzamy stany magazynowe (ilości)
         mapowanie_stanow = {
             "magazyn": nowe_dane["ilosc"].get("magazyn", 0),
             "uzycie": nowe_dane["ilosc"].get("W uzyciu", 0),
@@ -174,7 +174,7 @@ class InventoryDB:
             szczegoly_logu = f"ID:{id_pozycji} | " + ", ".join(zmiany)
             self._zapisz_log("AKTUALIZACJA", szczegoly_logu)
 
-        # 4. Wykonujemy faktyczny zapis w bazie SQL[cite: 2]
+        # 4. Wykonujemy faktyczny zapis w bazie SQL
         try:
             conn = sqlite3.connect(self.db_path)
             cur = conn.cursor()
@@ -199,12 +199,12 @@ class InventoryDB:
         """
         Usuwa ściernicę o podanym ID. Najpierw sprawdza jej dane, aby zapisać je w logu.
         """
-        # 1. KROK EDUKACYJNY: Musimy najpierw pobrać dane, bo po usunięciu ich nie odzyskamy[cite: 2]
+        # 1. KROK EDUKACYJNY: Musimy najpierw pobrać dane, bo po usunięciu ich nie odzyskamy
         opis_do_logu = f"ID:{id_pozycji}"
         
         try:
             conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row # Pozwala na dostęp do kolumn po nazwach[cite: 2]
+            conn.row_factory = sqlite3.Row # Pozwala na dostęp do kolumn po nazwach
             cur = conn.cursor()
             
             # Pobieramy szczegóły usuwanego przedmiotu
@@ -215,7 +215,7 @@ class InventoryDB:
                 opis_elementu = f"{row['typ']} {row['opis']}"
                 opis_do_logu = f"ID:{id_pozycji} ({opis_elementu})"
 
-            # 2. Usuwamy właściwy rekord[cite: 2]
+            # 2. Usuwamy właściwy rekord
             cur.execute("DELETE FROM sciernice WHERE id=?", (id_pozycji,))
             
             conn.commit()
@@ -249,5 +249,5 @@ class InventoryDB:
 
     @property
     def lista_typow(self):
-        """Zwraca klucze typów z konfiguracji[cite: 6]."""
+        """Zwraca klucze typów z konfiguracji."""
         return list(self.dane["konfiguracja"].get("typy_ustawienia", {}).keys())

@@ -27,7 +27,7 @@ class EditWindow(ctk.CTkToplevel):
         f_norm = ("Arial", 14)
 
         # --- DYNAMICZNA KONFIGURACJA PARAMETRU ---
-        # Pobieramy ustawienia dla danego typu z konfiguracji wczytanej z JSON[cite: 5]
+        # Pobieramy ustawienia dla danego typu z konfiguracji wczytanej z JSON
         typ_s = self.item.get("typ", "")
         ustawienia_typow = self.db.dane["konfiguracja"].get("typy_ustawienia", {})
         konfig_typu = ustawienia_typow.get(typ_s, {})
@@ -36,7 +36,7 @@ class EditWindow(ctk.CTkToplevel):
         prefix = konfig_typu.get("prefix", "")
         suffix = konfig_typu.get("suffix", "")
         
-        # Budujemy czytelną etykietę, np. "Promień (R ...):"[cite: 3, 5]
+        # Budujemy czytelną etykietę, np. "Promień (R ...):"
         hint = f" ({prefix}...{suffix})" if (prefix or suffix) else ""
         p_label_text = f"{label_base}{hint}:"
 
@@ -58,11 +58,11 @@ class EditWindow(ctk.CTkToplevel):
         self.e_param.insert(0, str(self.item.get("kat", "")))
         self.e_param.pack(pady=5)
 
-        # Sekcja: Stany Magazynowe[cite: 3]
+        # Sekcja: Stany Magazynowe
         ctk.CTkLabel(self, text="STANY MAGAZYNOWE", font=f_bold).pack(pady=25)
         
         self.status_entries = {}
-        # Pobieramy listę statusów z konfiguracji[cite: 5]
+        # Pobieramy listę statusów z konfiguracji
         lista_statusow = self.db.dane["konfiguracja"].get("statusy", ["magazyn", "W uzyciu", "zamowiona", "zlom"])
         
         for status in lista_statusow:
@@ -72,7 +72,7 @@ class EditWindow(ctk.CTkToplevel):
             ctk.CTkLabel(f, text=status, width=150, anchor="w", font=f_norm).pack(side="left")
             
             ent = ctk.CTkEntry(f, width=80, height=35, font=f_norm)
-            # Pobieramy aktualną ilość dla danego statusu[cite: 3]
+            # Pobieramy aktualną ilość dla danego statusu
             aktualna_ilosc = self.item["ilosc"].get(status, 0)
             ent.insert(0, str(aktualna_ilosc))
             ent.pack(side="right")
@@ -93,7 +93,7 @@ class EditWindow(ctk.CTkToplevel):
         self.btn_save.pack(pady=(40, 20))
 
     def save(self):
-        """Walidacja i zapis danych do bazy SQL[cite: 2, 3]."""
+        """Walidacja i zapis danych do bazy SQL."""
         try:
             # Konwersja pól stanów na liczby całkowite
             nowe_ilosci = {s: int(e.get()) for s, e in self.status_entries.items()}
@@ -104,7 +104,7 @@ class EditWindow(ctk.CTkToplevel):
                 "ilosc": nowe_ilosci
             }
             
-            # Wywołanie aktualizacji w bazie danych[cite: 2]
+            # Wywołanie aktualizacji w bazie danych
             self.db.aktualizuj_pozycje(self.item["id"], update_data)
             
             # Odświeżenie tabeli głównej i zamknięcie okna
@@ -112,7 +112,7 @@ class EditWindow(ctk.CTkToplevel):
             self.destroy()
             
         except ValueError:
-            # parent=self zapewnia, że błąd nie schowa się pod oknem[cite: 3]
+            # parent=self zapewnia, że błąd nie schowa się pod oknem
             messagebox.showerror(
                 "Błąd formatu", 
                 "Pola ilościowe muszą zawierać tylko liczby całkowite!", 
