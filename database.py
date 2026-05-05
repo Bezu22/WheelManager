@@ -46,20 +46,28 @@ class InventoryDB:
         conn.commit()
         conn.close()
 
-    def pobierz_dane(self, filtr=""):
-        """Pobiera dane uwzględniając ziarno i parametr w wyszukiwarce[cite: 6]."""
+    def pobierz_dane(self, filtr="", aktywne_filtry=None):
+        """Pobiera dane z uwzględnieniem wyszukiwarki i filtrów kolumnowych."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         
-        query = """
-            SELECT * FROM sciernice 
-            WHERE typ LIKE ? OR opis LIKE ? OR producent LIKE ? OR ziarno LIKE ? OR kat LIKE ?
-        """
+        # 1. Podstawowe zapytanie szukające w Opisie i Parametrze
+        query = "SELECT * FROM sciernice WHERE (opis LIKE ? OR kat LIKE ?)"
         f = f"%{filtr}%"
-        cur.execute(query, (f, f, f, f, f))
+        params = [f, f]
         
+        # 2. Dynamiczne dodawanie filtrów kolumnowych (TYP, ZIARNO, PRODUCENT)[cite: 2]
+        if aktywne_filtry:
+            for col, values in aktywne_filtry.items():
+                if values: # Jeśli lista nie jest pusta, stosujemy filtr
+                    placeholders = ", ".join(["?"] * len(values))
+                    query += f" AND {col} IN ({placeholders})"
+                    params.extend(values)
+        
+        cur.execute(query, params)
         rows = cur.fetchall()
+        
         wynik = []
         for r in rows:
             wynik.append({
@@ -216,6 +224,14 @@ class InventoryDB:
                 f.write(linia)
         except Exception as e:
             print(f"Błąd zapisu do logu: {e}")
+    
+    def pobierz_unikalne_wartosci(self, kolumna):
+        """Pobiera unikalne wartości dla danej kolumny do listy filtrów."""
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
+            query = f"SELECT DISTINCT {kolumna} FROM sciernice WHERE {kolumna} IS NOT NULL AND {kolumna} != ''"
+            cur.execute(query)
+            return sorted([str(r[0]) for r in cur.fetchall()])
 
     @property
     def lista_typow(self):

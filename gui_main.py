@@ -7,8 +7,13 @@ class MagazynGUI(ctk.CTk):
         super().__init__()
         self.db = db
         self.selected_id = None
-        self.widzety_wierszy = {} # Przechowuje referencje do ramek wierszy[cite: 4]
+        self.widzety_wierszy = {}
         self._ostatnia_fraza = ""
+        self.active_filters = {
+            "typ": [],
+            "ziarno": [],
+            "producent": []
+        }
 
         self.window_width, self.window_height = 1450, 850
         pos_x = int((self.winfo_screenwidth() - self.window_width) / 2)
@@ -30,38 +35,62 @@ class MagazynGUI(ctk.CTk):
         else: self.setup_ui_error()
 
     def setup_ui_pelny(self):
+        """Buduje pełny interfejs z interaktywnymi nagłówkami filtrów."""
         self.container.grid_rowconfigure(1, weight=1)
         self.container.grid_columnconfigure(0, weight=1)
 
-        # Searchbar
+        # 1. Searchbar (tylko Opis i Parametr)
         self.search_var = ctk.StringVar()
         self.search_var.trace_add("write", lambda *args: self.odswiez_tabele(pelne=True))
-        self.e_search = ctk.CTkEntry(self.container, placeholder_text="🔍 Szukaj (typ, opis, producent, ziarno, parametr)...", 
+        self.e_search = ctk.CTkEntry(self.container, 
+                                     placeholder_text="🔍 Szukaj w opisie lub parametrach...", 
                                      textvariable=self.search_var, width=500, height=40)
         self.e_search.grid(row=0, column=0, padx=20, pady=10, sticky="w")
 
-        # Tabela
+        # 2. Tabela i Nagłówki
         self.frame_tabela = ctk.CTkFrame(self.container)
         self.frame_tabela.grid(row=1, column=0, padx=20, pady=5, sticky="nsew")
         
+        # Nagłówki z obsługą kliknięcia (Filtry)
         self.h_frame = ctk.CTkFrame(self.frame_tabela, fg_color="transparent")
         self.h_frame.pack(fill="x", padx=10, pady=10)
-        for k, text in [("typ","TYP"), ("kat","PARAMETR"), ("opis","OPIS"), ("ziarno","ZIARNO"), ("producent","PRODUCENT"), ("statusy","STATUSY")]:
-            ctk.CTkLabel(self.h_frame, text=text, width=self.col_widths[k], anchor="w", font=self.font_header).pack(side="left", padx=5)
+        
+        # Definicja nagłówków: (klucz_db, nazwa_wyswietlana, czy_filtrowalna)
+        self.header_labels = {}
+        headers = [
+            ("typ", "TYP ▾", True), 
+            ("kat", "PARAMETR", False), 
+            ("opis", "OPIS", False), 
+            ("ziarno", "ZIARNO ▾", True), 
+            ("producent", "PRODUCENT ▾", True),
+            ("statusy", "STATUSY", False)
+        ]
 
+        for k, text, filtrowalna in headers:
+            lbl = ctk.CTkLabel(self.h_frame, text=text, width=self.col_widths[k], 
+                               anchor="w", font=self.font_header)
+            lbl.pack(side="left", padx=5)
+            self.header_labels[k] = lbl
+            
+            if filtrowalna:
+                lbl.configure(cursor="hand2")
+                # Bindujemy kliknięcie do otwarcia Twojego okna popup
+                lbl.bind("<Button-1>", lambda e, col=k, name=text: self.show_popup_filter(col, name))
+
+        # 3. Obszar przewijany danych[cite: 4]
         self.scroll = ctk.CTkScrollableFrame(self.frame_tabela, fg_color="#1a1a1a")
         self.scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        # Formularz
+        # 4. Formularz dodawania (Dolny panel)[cite: 4]
         self.p_form = ctk.CTkFrame(self.container)
         self.p_form.grid(row=2, column=0, padx=20, pady=20, sticky="ew")
         
         conf = self.db.dane["konfiguracja"]
-        self.c_typ = ctk.CTkComboBox(self.p_form, values=self.db.lista_typow, width=100, height=40)
+        self.c_typ = ctk.CTkComboBox(self.p_form, values=self.db.lista_typow, width=120, height=40)
         self.c_typ.pack(side="left", padx=3)
         self.e_param = ctk.CTkEntry(self.p_form, placeholder_text="Parametr", width=100, height=40)
         self.e_param.pack(side="left", padx=3)
-        self.e_opis = ctk.CTkEntry(self.p_form, placeholder_text="Opis", width=280, height=40)
+        self.e_opis = ctk.CTkEntry(self.p_form, placeholder_text="Opis wymiarowy", width=280, height=40)
         self.e_opis.pack(side="left", padx=3)
         self.e_ziarno = ctk.CTkEntry(self.p_form, placeholder_text="Ziarno", width=100, height=40)
         self.e_ziarno.pack(side="left", padx=3)
@@ -70,28 +99,42 @@ class MagazynGUI(ctk.CTk):
         self.e_il = ctk.CTkEntry(self.p_form, placeholder_text="Szt.", width=70, height=40)
         self.e_il.pack(side="left", padx=3)
 
-        self.btn_add = ctk.CTkButton(self.p_form, text="DODAJ", fg_color="#2ecc71", width=120, height=40, font=self.font_header, command=self.handle_add)
+        # Przyciski akcji[cite: 4]
+        self.btn_add = ctk.CTkButton(self.p_form, text="DODAJ", fg_color="#2ecc71", 
+                                     width=120, height=40, font=self.font_header, command=self.handle_add)
         self.btn_add.pack(side="left", padx=15)
         
-        self.btn_del = ctk.CTkButton(self.p_form, text="USUŃ", state="disabled", fg_color="#c0392b", width=100, height=40, font=self.font_header, command=self.confirm_delete_main)
+        self.btn_del = ctk.CTkButton(self.p_form, text="USUŃ", state="disabled", 
+                                     fg_color="#c0392b", width=100, height=40, font=self.font_header, 
+                                     command=self.confirm_delete_main)
         self.btn_del.pack(side="right", padx=5)
         
-        self.btn_ed = ctk.CTkButton(self.p_form, text="EDYTUJ WYBRANĄ", state="disabled", fg_color="#3498db", width=150, height=40, font=self.font_header, command=self.open_edit)
+        self.btn_ed = ctk.CTkButton(self.p_form, text="EDYTUJ", state="disabled", 
+                                    fg_color="#3498db", width=120, height=40, font=self.font_header, 
+                                    command=self.open_edit)
         self.btn_ed.pack(side="right", padx=5)
 
         self.odswiez_tabele(pelne=True)
 
     def odswiez_tabele(self, pelne=False):
-        """Zoptymalizowane odświeżanie bez przeskakiwania scrolla[cite: 4]."""
+        """Zoptymalizowane odświeżanie z obsługą filtrów kolumnowych."""
         fraza = self.search_var.get()
         
-        # Pełne przerysowanie tylko przy zmianie wyszukiwania lub wymuszeniu
-        if pelne or fraza != self._ostatnia_fraza:
-            self._ostatnia_fraza = fraza
-            for w in self.scroll.winfo_children(): w.destroy()
+        # Tworzymy unikalny klucz na podstawie frazy i wybranych filtrów
+        # To wymusi odświeżenie, gdy zmienisz checkboxy w popupie
+        stan_filtrow = f"{fraza}_{str(self.active_filters)}"
+        
+        if pelne or stan_filtrow != self._ostatnia_fraza:
+            self._ostatnia_fraza = stan_filtrow
+            
+            # Czyszczenie widżetów
+            for w in self.scroll.winfo_children(): 
+                w.destroy()
             self.widzety_wierszy = {}
             
-            dane = self.db.pobierz_dane(fraza)
+            # POBIERANIE DANYCH
+            dane = self.db.pobierz_dane(fraza, self.active_filters)
+            
             ustawienia = self.db.dane["konfiguracja"].get("typy_ustawienia", {})
 
             for s in dane:
@@ -157,3 +200,53 @@ class MagazynGUI(ctk.CTk):
         f = ctk.CTkFrame(self.container); f.place(relx=0.5, rely=0.5, anchor="center")
         ctk.CTkLabel(f, text="⚠️ BRAK POŁĄCZENIA", font=("Arial", 20, "bold"), text_color="#e74c3c").pack(pady=20, padx=50)
         ctk.CTkButton(f, text="PONÓW", command=self.sprawdz_polaczenie).pack(pady=10)
+
+    def show_popup_filter(self, column_name, display_name):
+        """Uniwersalne okno filtra z checkboxami."""
+        all_options = self.db.pobierz_unikalne_wartosci(column_name)
+
+        popup = ctk.CTkToplevel(self)
+        popup.title(f"Filtr: {display_name}")
+        popup.geometry("280x420")
+        popup.attributes("-topmost", True)
+        
+        # Pozycjonowanie przy kursorze
+        x = self.winfo_pointerx()
+        y = self.winfo_pointery()
+        popup.geometry(f"+{x}+{y}")
+
+        vars = {}
+        # Jeśli lista filtrów jest pusta, zaznaczamy wszystko na start
+        is_all_selected = len(self.active_filters[column_name]) == 0
+        all_var = ctk.BooleanVar(value=is_all_selected)
+
+        def toggle_all():
+            for v in vars.values(): v.set(all_var.get())
+
+        ctk.CTkCheckBox(popup, text="Zaznacz wszystko", variable=all_var, command=toggle_all).pack(pady=10, padx=10, anchor="w")
+        scroll = ctk.CTkScrollableFrame(popup)
+        scroll.pack(fill="both", expand=True, padx=10, pady=5)
+
+        for opt in all_options:
+            # Sprawdzamy czy dana opcja była wcześniej wybrana
+            is_selected = opt in self.active_filters[column_name] if self.active_filters[column_name] else True
+            v = ctk.BooleanVar(value=is_selected)
+            ctk.CTkCheckBox(scroll, text=opt, variable=v).pack(pady=2, padx=5, anchor="w")
+            vars[opt] = v
+
+        def apply():
+            selected = [opt for opt, v in vars.items() if v.get()]
+            
+            if 0 < len(selected) < len(all_options):
+                self.active_filters[column_name] = selected
+                # Zmieniamy tekst nagłówka na żółty, żeby było widać, że filtr działa
+                self.header_labels[column_name].configure(text_color="#f1c40f")
+            else:
+                self.active_filters[column_name] = []
+                # Powrót do białego koloru
+                self.header_labels[column_name].configure(text_color="#FFFFFF")
+            
+            popup.destroy()
+            self.odswiez_tabele(pelne=True)
+
+        ctk.CTkButton(popup, text="Zastosuj", fg_color="#1f538d", command=apply).pack(pady=10)
