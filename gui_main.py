@@ -79,11 +79,11 @@ class MagazynGUI(ctk.CTk):
                 # Bindujemy kliknięcie do otwarcia Twojego okna popup
                 lbl.bind("<Button-1>", lambda e, col=k, name=text: self.show_popup_filter(col, name))
 
-        # 3. Obszar przewijany danych[cite: 4]
+        # 3. Obszar przewijany danych
         self.scroll = ctk.CTkScrollableFrame(self.frame_tabela, fg_color="#1a1a1a")
         self.scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        # 4. Formularz dodawania (Dolny panel)[cite: 4]
+        # 4. Formularz dodawania (Dolny panel)
         self.p_form = ctk.CTkFrame(self.container)
         self.p_form.grid(row=2, column=0, padx=20, pady=20, sticky="ew")
         
@@ -101,7 +101,7 @@ class MagazynGUI(ctk.CTk):
         self.e_il = ctk.CTkEntry(self.p_form, placeholder_text="Szt.", width=70, height=40)
         self.e_il.pack(side="left", padx=3)
 
-        # Przyciski akcji[cite: 4]
+        # Przyciski akcji
         self.btn_add = ctk.CTkButton(self.p_form, text="DODAJ", fg_color="#2ecc71", 
                                      width=120, height=40, font=self.font_header, command=self.handle_add)
         self.btn_add.pack(side="left", padx=15)
@@ -163,7 +163,7 @@ class MagazynGUI(ctk.CTk):
                         lbl.pack(side="left", padx=10)
                         lbl.bind("<Button-1>", lambda e, cid=s["id"]: self.select_item(cid))
         else:
-            # Szybka aktualizacja tylko kolorów ramek (bez niszczenia widżetów)[cite: 4]
+            # Szybka aktualizacja tylko kolorów ramek (bez niszczenia widżetów)
             for cid, frame in self.widzety_wierszy.items():
                 nowy_bg = "#1f538d" if cid == self.selected_id else "#2b2b2b"
                 if frame.cget("fg_color") != nowy_bg:
@@ -173,7 +173,7 @@ class MagazynGUI(ctk.CTk):
         self.selected_id = cid
         self.btn_ed.configure(state="normal")
         self.btn_del.configure(state="normal")
-        self.odswiez_tabele(pelne=False) # Tylko zmiana koloru[cite: 4]
+        self.odswiez_tabele(pelne=False) # Tylko zmiana koloru
 
     def handle_add(self):
         try:
@@ -212,7 +212,7 @@ class MagazynGUI(ctk.CTk):
             self._filter_popup.focus()  # Przywołaj istniejące okno na wierzch
             return
 
-        # 2. Pobranie unikalnych wartości z bazy danych[cite: 2]
+        # 2. Pobranie unikalnych wartości z bazy danych
         all_options = self.db.pobierz_unikalne_wartosci(column_name)
 
         # 3. Tworzenie okna
@@ -257,14 +257,14 @@ class MagazynGUI(ctk.CTk):
                 
                 # Dynamiczne zarządzanie kolejnością:
                 if column_name not in self.filter_order:
-                    self.filter_order.append(column_name) # Dodaj na koniec jako najważniejszy[cite: 7]
+                    self.filter_order.append(column_name) # Dodaj na koniec jako najważniejszy
             else:
                 self.active_filters[column_name] = []
                 self.header_labels[column_name].configure(text_color="#FFFFFF")
                 
                 # Usuń z kolejki, jeśli filtr został wyłączony:
                 if column_name in self.filter_order:
-                    self.filter_order.remove(column_name)[cite: 7]
+                    self.filter_order.remove(column_name)
             
             self._on_filter_popup_close()
             self.odswiez_tabele(pelne=True)
